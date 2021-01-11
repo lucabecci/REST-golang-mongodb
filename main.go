@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -21,6 +22,21 @@ type Person struct {
 }
 
 var client *mongo.Client
+
+func main() {
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
+	client, _ = mongo.Connect(ctx, clientOptions)
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/people", CreatePersonEndpoint).Methods("POST")
+	router.HandleFunc("/people", GetPeople).Methods("GET")
+	router.HandleFunc("/people/{id}", GetPeopleByID).Methods("GET")
+	fmt.Println("Server on port:", 4000)
+	http.ListenAndServe(":4000", router)
+
+}
 
 func CreatePersonEndpoint(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("content-type", "application/json")
@@ -45,18 +61,60 @@ func CreatePersonEndpoint(res http.ResponseWriter, req *http.Request) {
 	res.WriteHeader(http.StatusAccepted)
 }
 
-func main() {
-	fmt.Printf("Hello World")
+func GetPeople(res http.ResponseWriter, req *http.Request) {
+	res.Header().Set("content-type", "application/json")
+
+	var people []Person
+
+	collection := client.Database("users_go").Collection("people")
 
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
-	client, _ = mongo.Connect(ctx, clientOptions)
 
-	fmt.Println("DB is connected")
+	cursor, err := collection.Find(ctx, bson.M{})
 
-	router := mux.NewRouter()
+	if err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte(`{"message":"error"}`))
+		return
+	}
 
-	router.HandleFunc("/person", CreatePersonEndpoint).Methods("POST")
-	http.ListenAndServe(":4000", router)
+	defer cursor.Close(ctx)
 
+	for cursor.Next(ctx) {
+		var person Person
+		cursor.Decode(&person)
+
+		people = append(people, person)
+	}
+
+	if err := cursor.Err(); err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte(`{"message":"error"}`))
+		return
+	}
+
+	json.NewEncoder(res).Encode(people)
+}
+
+func GetPeopleByID(res http.ResponseWriter, req *http.Request) {
+	res.Header().Set("content-type", "application/json")
+	params := mux.Vars(req)
+
+	id, _ := primitive.ObjectIDFromHex(params["id"])
+
+	var person Person
+
+	collection := client.Database("users_go").Collection("people")
+
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+
+	err := collection.FindOne(ctx, Person{ID: id}).Decode(&person)
+
+	if err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte(`{ "message": "error" }`))
+		return
+	}
+
+	json.NewEncoder(res).Encode(person)
 }

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -30,11 +30,24 @@ func main() {
 
 	router := mux.NewRouter()
 
+	srv := &http.Server{
+		Addr:         ":4000",
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		Handler:      router,
+	}
+
 	router.HandleFunc("/people", CreatePersonEndpoint).Methods("POST")
 	router.HandleFunc("/people", GetPeople).Methods("GET")
 	router.HandleFunc("/people/{id}", GetPeopleByID).Methods("GET")
-	fmt.Println("Server on port:", 4000)
-	http.ListenAndServe(":4000", router)
+
+	err := srv.ListenAndServe()
+	if err != nil {
+		log.Fatal("Server failed to start: %v", err)
+	} else {
+		log.Printf("Server on port:", 4000)
+	}
 
 }
 
